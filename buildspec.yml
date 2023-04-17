@@ -1,0 +1,119 @@
+version: 0.2
+env:
+  shell: bash
+phases:
+  install:
+   commands:
+    - export PATH=$PWD/:$PATH
+    - apt-get update && apt-get -y install jq python3-pip python3-dev && pip3 install --upgrade awscli 
+  pre_build:
+    commands:
+      # Installing resources for Kubectl
+      - curl -sS -o aws-iam-authenticator https://amazon-eks.s3.us-west-2.amazonaws.com/1.21.2/2021-07-05/bin/linux/amd64/aws-iam-authenticator
+      - curl -LO "https://dl.k8s.io/release/v1.18.9/bin/linux/amd64/kubectl"
+      - install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+      - chmod +x ./aws-iam-authenticator
+      - export PATH=$PWD/:$PATH
+     # - echo "Check if kubectl and aws-iam-auth got installed:"
+      - kubectl version --client
+      - aws-iam-authenticator help
+      # Installing awscli and jq
+      - apt-get update && apt-get install -y python-dev jq
+      # - docker pull anchore/engine-cli:v0.8.2
+      - curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+      - python get-pip.py
+      - pip install awscli
+      #- echo "AWS VERSION"
+      #- aws --version
+      - docker login --username $DOCKERHUB_USERNAME --password $DOCKERHUB_PASS
+
+      - $(aws ecr get-login --no-include-email)
+  build:
+    commands:
+      # - docker build $CODEBUILD_SRC_DIR_AppSource -t $IMAGE
+      # - docker push $IMAGE
+      - echo Build start at `date`
+      - cd $CODEBUILD_SRC_DIR
+      - echo pwd
+      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+      - echo commit_hash = $COMMIT_HASH
+      - IMAGE_TAG=${COMMIT_HASH:=test}
+      - COMMIT_MESSAGE=$(aws codepipeline list-pipeline-executions  --pipeline-name dev-third-party-auth --max-items 1 | jq -r '.pipelineExecutionSummaries[0].sourceRevisions[0].revisionSummary')
+      - export COMMIT_MESSAGE
+      - echo $COMMIT_MESSAGE
+     # - URL=$(aws codepipeline list-pipeline-executions  --pipeline-name dev-third-party-auth ) # debug command only
+    #  - export URL
+    #  - echo $URL
+      - loc1=$(echo "$COMMIT_MESSAGE"  | grep -b -o CommitMessage |  sed 's/:.*$//')
+      - echo $loc1
+      - loc1=$(($loc1+16))
+      - echo $loc1
+      - final=$(echo ${COMMIT_MESSAGE:$loc1:-2})
+      - echo $final
+      - aws lambda invoke --function-name codebuil-dev --payload "{ \"name\":\"$COMMIT_HASH\", \"name1\":\"$final\"}" response.json --region us-east-1
+      
+      - echo Building image using the docker file
+      - docker build -t $DEPLOYMENTNAME .
+      - docker images
+      - docker tag $DEPLOYMENTNAME:latest $REPOSITORY_URI:$IMAGE_TAG
+      - docker images
+      - echo Pushing docker image to ECR
+      - docker push $REPOSITORY_URI:$IMAGE_TAG
+      - echo Writing image definitions file...
+      - printf '{"ImageURI":"%s"}' $REPOSITORY_URI:$IMAGE_TAG > imageDetail.json
+      - cat imageDetail.json
+      - echo end of build phase
+  post_build:
+    commands:
+      - echo "Updating k8s Deployment file"
+      - sed -i 's@image:.*@'image:" $REPOSITORY_URI:$IMAGE_TAG"'@' k8s/deployment.yml
+      - sed -i 's@DEPLOYMENTNAME@'$DEPLOYMENTNAME'@' k8s/deployment.yml
+      - sed -i 's@BUILDENVVALUE@'$BUILDENVVALUE'@' k8s/deployment.yml
+      - sed -i 's@NAMESPACE@'$NAMESPACE'@' k8s/deployment.yml
+      - sed -i 's@CPU_LIMIT@'$CPU_LIMIT'@' k8s/deployment.yml
+      - sed -i 's@MEMORY_LIMIT@'$MEMORY_LIMIT'@' k8s/deployment.yml
+      - sed -i 's@REQUEST_CPU@'$REQUEST_CPU'@' k8s/deployment.yml
+      - sed -i 's@REQUEST_MEMORY@'$REQUEST_MEMORY'@' k8s/deployment.yml
+      - sed -i 's@PARAMETER_STORE_ENV@'$PARAMETER_STORE_ENV'@' k8s/deployment.yml
+      - sed -i 's@DEPLOYMENT_REGION@'$DEPLOYMENT_REGION'@' k8s/deployment.yml
+    #  - sed -i 's@PORT@'$PORT'@' k8s/deployment.yaml
+      
+      - sed -i 's@NAMESPACE@'$NAMESPACE'@' k8s/service.yml
+      - sed -i 's@SERVICENAME@'$SERVICENAME'@' k8s/service.yml
+   #   - sed -i 's@PORT@'$PORT'@' k8s/service.yaml
+      
+      
+      - sed -i 's@LOADBALANCERNAME@'$LOADBALANCERNAME'@' k8s/ingress.yml
+      - sed -i 's@INGRESSNAME@'$INGRESSNAME'@' k8s/ingress.yml
+      - sed -i 's@NAMESPACE@'$NAMESPACE'@' k8s/ingress.yml
+      - sed -i 's@INGRESSCLASSNAME@'$INGRESSCLASSNAME'@' k8s/ingress.yml
+      - sed -i 's@HOSTURL@'$HOSTURL'@' k8s/ingress.yml
+    #  - sed -i 's@PORT@'$PORT'@' k8s/ingress.yaml
+      - sed -i 's@SERVICENAME@'$SERVICENAME'@' k8s/ingress.yml
+      - sed -i 's@CERTIFICATE_ARN@'$CERTIFICATE_ARN'@' k8s/ingress.yml
+      - sed -i 's@DEPLOYMENTNAME@'$DEPLOYMENTNAME'@' k8s/ingress.yml
+      
+      - sed -i 's@DEPLOYMENTNAME@'$DEPLOYMENTNAME'@' k8s/hpa.yml
+      - sed -i 's@NAMESPACE@'$NAMESPACE'@' k8s/hpa.yml
+      - sed -i 's@MIN_REPLICA_COUNT@'$MIN_REPLICA_COUNT'@' k8s/hpa.yml
+      - sed -i 's@MAX_REPLICA_COUNT@'$MAX_REPLICA_COUNT'@' k8s/hpa.yml
+      - cat k8s/deployment.yml
+      - cat k8s/ingress.yml
+      - cat k8s/service.yml
+      - cat k8s/hpa.yml
+      #- sed -i 's@DEPLOYMENTNAME@'$DEPLOYMENTNAME'@' k8s/hpa.yml
+      #- sed -i 's@NAMESPACE@'$NAMESPACE'@' k8s/hpa.yml
+      #- cat k8s/hpa.yml
+      - CREDENTIALS=$(aws sts assume-role --role-arn $EKS_KUBECTL_ROLE_ARN --role-session-name codebuild-kubectl --duration-seconds 900)
+      - export AWS_ACCESS_KEY_ID="$(echo ${CREDENTIALS} | jq -r '.Credentials.AccessKeyId')"
+      - export AWS_SECRET_ACCESS_KEY="$(echo ${CREDENTIALS} | jq -r '.Credentials.SecretAccessKey')"
+      - export AWS_SESSION_TOKEN="$(echo ${CREDENTIALS} | jq -r '.Credentials.SessionToken')"
+      - export AWS_EXPIRATION=$(echo ${CREDENTIALS} | jq -r '.Credentials.Expiration')
+      - export KUBECONFIG=$PWD/kubeconfig
+      - aws eks update-kubeconfig --region $AWS_DEFAULT_REGION --name $EKS_CLUSTER_NAME
+      - echo "Check if kubectl get ns works fine:"
+      - kubectl get ns
+      - kubectl apply -f k8s/.
+      - echo "Deployments done!"
+      - echo "Check if pods are running fine:"
+      - kubectl get pods -n $NAMESPACE% 
