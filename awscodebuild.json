@@ -1,0 +1,53 @@
+{
+    "name": "codebuild-demo-project-332",
+    "source": {
+        "type": "BITBUCKET",
+        "location": "https://chingaricicd@bitbucket.org/sumitghosh/agency.git",
+        "gitCloneDepth": 0,
+        "gitSubmodulesConfig": {
+            "fetchSubmodules": true
+        },
+        "buildspec": "version: 0.2\nenv:\n  shell: bash\nphases:\n  install:\n   commands:\n    - export PATH=$PWD/:$PATH\n    - apt-get update && apt-get -y install jq python3-pip python3-dev && pip3 install --upgrade awscli \n  pre_build:\n    commands:\n      # Installing resources for Kubectl\n      - curl -sS -o aws-iam-authenticator https://amazon-eks.s3.us-west-2.amazonaws.com/1.21.2/2021-07-05/bin/linux/amd64/aws-iam-authenticator\n      - curl -LO \"https://dl.k8s.io/release/v1.18.9/bin/linux/amd64/kubectl\"\n      - install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl\n      - chmod +x ./aws-iam-authenticator\n      - export PATH=$PWD/:$PATH\n     # - echo \"Check if kubectl and aws-iam-auth got installed:\"\n      - kubectl version --client\n      - aws-iam-authenticator help\n      # Installing awscli and jq\n      - apt-get update && apt-get install -y python-dev jq\n      # - docker pull anchore/engine-cli:v0.8.2\n      - curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py\n      - python get-pip.py\n      - pip install awscli\n      #- echo \"AWS VERSION\"\n      #- aws --version\n      - docker login --username $DOCKERHUB_USERNAME --password $DOCKERHUB_PASS\n\n      - $(aws ecr get-login --no-include-email)\n  build:\n    commands:\n      # - docker build $CODEBUILD_SRC_DIR_AppSource -t $IMAGE\n      # - docker push $IMAGE\n      - echo Build start at `date`\n      - cd $CODEBUILD_SRC_DIR\n      - echo pwd\n      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)\n      - echo commit_hash = $COMMIT_HASH\n      - IMAGE_TAG=${COMMIT_HASH:=test}\n      - COMMIT_MESSAGE=$(aws codepipeline list-pipeline-executions  --pipeline-name dev-third-party-auth --max-items 1 | jq -r '.pipelineExecutionSummaries[0].sourceRevisions[0].revisionSummary')\n      - export COMMIT_MESSAGE\n      - echo $COMMIT_MESSAGE\n     # - URL=$(aws codepipeline list-pipeline-executions  --pipeline-name dev-third-party-auth ) # debug command only\n    #  - export URL\n    #  - echo $URL\n      - loc1=$(echo \"$COMMIT_MESSAGE\"  | grep -b -o CommitMessage |  sed 's/:.*$//')\n      - echo $loc1\n      - loc1=$(($loc1+16))\n      - echo $loc1\n      - final=$(echo ${COMMIT_MESSAGE:$loc1:-2})\n      - echo $final\n      - aws lambda invoke --function-name codebuil-dev --payload \"{ \\\"name\\\":\\\"$COMMIT_HASH\\\", \\\"name1\\\":\\\"$final\\\"}\" response.json --region us-east-1\n      \n      - echo Building image using the docker file\n      - docker build -t $DEPLOYMENTNAME .\n      - docker images\n      - docker tag $DEPLOYMENTNAME:latest $REPOSITORY_URI:$IMAGE_TAG\n      - docker images\n      - echo Pushing docker image to ECR\n      - docker push $REPOSITORY_URI:$IMAGE_TAG\n      - echo Writing image definitions file...\n      - printf '{\"ImageURI\":\"%s\"}' $REPOSITORY_URI:$IMAGE_TAG > imageDetail.json\n      - cat imageDetail.json\n      - echo end of build phase\n  post_build:\n    commands:\n      - echo \"Updating k8s Deployment file\"\n      - sed -i 's@image:.*@'image:\" $REPOSITORY_URI:$IMAGE_TAG\"'@' k8s/deployment.yml\n      - sed -i 's@DEPLOYMENTNAME@'$DEPLOYMENTNAME'@' k8s/deployment.yml\n      - sed -i 's@BUILDENVVALUE@'$BUILDENVVALUE'@' k8s/deployment.yml\n      - sed -i 's@NAMESPACE@'$NAMESPACE'@' k8s/deployment.yml\n      - sed -i 's@CPU_LIMIT@'$CPU_LIMIT'@' k8s/deployment.yml\n      - sed -i 's@MEMORY_LIMIT@'$MEMORY_LIMIT'@' k8s/deployment.yml\n      - sed -i 's@REQUEST_CPU@'$REQUEST_CPU'@' k8s/deployment.yml\n      - sed -i 's@REQUEST_MEMORY@'$REQUEST_MEMORY'@' k8s/deployment.yml\n      - sed -i 's@PARAMETER_STORE_ENV@'$PARAMETER_STORE_ENV'@' k8s/deployment.yml\n      - sed -i 's@DEPLOYMENT_REGION@'$DEPLOYMENT_REGION'@' k8s/deployment.yml\n    #  - sed -i 's@PORT@'$PORT'@' k8s/deployment.yaml\n      \n      - sed -i 's@NAMESPACE@'$NAMESPACE'@' k8s/service.yml\n      - sed -i 's@SERVICENAME@'$SERVICENAME'@' k8s/service.yml\n   #   - sed -i 's@PORT@'$PORT'@' k8s/service.yaml\n      \n      \n      - sed -i 's@LOADBALANCERNAME@'$LOADBALANCERNAME'@' k8s/ingress.yml\n      - sed -i 's@INGRESSNAME@'$INGRESSNAME'@' k8s/ingress.yml\n      - sed -i 's@NAMESPACE@'$NAMESPACE'@' k8s/ingress.yml\n      - sed -i 's@INGRESSCLASSNAME@'$INGRESSCLASSNAME'@' k8s/ingress.yml\n      - sed -i 's@HOSTURL@'$HOSTURL'@' k8s/ingress.yml\n    #  - sed -i 's@PORT@'$PORT'@' k8s/ingress.yaml\n      - sed -i 's@SERVICENAME@'$SERVICENAME'@' k8s/ingress.yml\n      - sed -i 's@CERTIFICATE_ARN@'$CERTIFICATE_ARN'@' k8s/ingress.yml\n      - sed -i 's@DEPLOYMENTNAME@'$DEPLOYMENTNAME'@' k8s/ingress.yml\n      \n      - sed -i 's@DEPLOYMENTNAME@'$DEPLOYMENTNAME'@' k8s/hpa.yml\n      - sed -i 's@NAMESPACE@'$NAMESPACE'@' k8s/hpa.yml\n      - sed -i 's@MIN_REPLICA_COUNT@'$MIN_REPLICA_COUNT'@' k8s/hpa.yml\n      - sed -i 's@MAX_REPLICA_COUNT@'$MAX_REPLICA_COUNT'@' k8s/hpa.yml\n      - cat k8s/deployment.yml\n      - cat k8s/ingress.yml\n      - cat k8s/service.yml\n      - cat k8s/hpa.yml\n      #- sed -i 's@DEPLOYMENTNAME@'$DEPLOYMENTNAME'@' k8s/hpa.yml\n      #- sed -i 's@NAMESPACE@'$NAMESPACE'@' k8s/hpa.yml\n      #- cat k8s/hpa.yml\n      - CREDENTIALS=$(aws sts assume-role --role-arn $EKS_KUBECTL_ROLE_ARN --role-session-name codebuild-kubectl --duration-seconds 900)\n      - export AWS_ACCESS_KEY_ID=\"$(echo ${CREDENTIALS} | jq -r '.Credentials.AccessKeyId')\"\n      - export AWS_SECRET_ACCESS_KEY=\"$(echo ${CREDENTIALS} | jq -r '.Credentials.SecretAccessKey')\"\n      - export AWS_SESSION_TOKEN=\"$(echo ${CREDENTIALS} | jq -r '.Credentials.SessionToken')\"\n      - export AWS_EXPIRATION=$(echo ${CREDENTIALS} | jq -r '.Credentials.Expiration')\n      - export KUBECONFIG=$PWD/kubeconfig\n      - aws eks update-kubeconfig --region $AWS_DEFAULT_REGION --name $EKS_CLUSTER_NAME\n      - echo \"Check if kubectl get ns works fine:\"\n      - kubectl get ns\n      - kubectl apply -f k8s/.\n      - echo \"Deployments done!\"\n      - echo \"Check if pods are running fine:\"\n      - kubectl get pods -n $NAMESPACE",
+                "reportBuildStatus": false,
+                "insecureSsl": false
+
+    },
+    "sourceVersion": "release/development",
+
+
+    "artifacts": {
+        "type": "NO_ARTIFACTS"
+    },
+    "environment": {
+        "type": "LINUX_CONTAINER",
+        "image": "aws/codebuild/standard:5.0",
+        "computeType": "BUILD_GENERAL1_SMALL",
+        "environmentVariables": [
+            {
+                "name": "test",
+                "value": "vale",
+                "type": "PLAINTEXT"
+            },
+            {
+                "name": "test2",
+                "value": "vale2",
+                "type": "PLAINTEXT"
+            }
+        ],
+        "privilegedMode": true
+    },
+    "serviceRole": "arn:aws:iam::463877552462:role/service-role/codebuild-dev-products-eks-service-role",
+    "vpcConfig": {
+        "vpcId": "vpc-07596aba4093c269b",
+        "subnets": [
+            "subnet-098c28e9827fd91aa",
+            "subnet-0c4a038cdb73b87b9",
+            "subnet-061dae014a73973f8"
+        ],
+        "securityGroupIds": [
+            "sg-0d429a16c4f6decc0"
+        ]
+    }
+
+
+}
