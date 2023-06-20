@@ -36,7 +36,7 @@
         ],
         "privilegedMode": true
     },
-    "serviceRole": "arn:aws:iam::463877552462:role/service-role/codebuild-dev-products-eks-service-role",
+    "serviceRole": "arn:aws:iam::<>:<>",
     "vpcConfig": {
         "vpcId": "vpc-07596aba4093c269b",
         "subnets": [
