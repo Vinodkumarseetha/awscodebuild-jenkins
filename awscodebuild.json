@@ -2,7 +2,7 @@
     "name": "codebuild-demo-project-332",
     "source": {
         "type": "BITBUCKET",
-        "location": "https://chingaricicd@bitbucket.org/sumitghosh/agency.git",
+        "location": "<bitbucektlocation>",
         "gitCloneDepth": 0,
         "gitSubmodulesConfig": {
             "fetchSubmodules": true
