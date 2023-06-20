@@ -38,14 +38,14 @@
     },
     "serviceRole": "arn:aws:iam::<>:<>",
     "vpcConfig": {
-        "vpcId": "vpc-07596aba4093c269b",
+        "vpcId": "<>",
         "subnets": [
-            "subnet-098c28e9827fd91aa",
-            "subnet-0c4a038cdb73b87b9",
-            "subnet-061dae014a73973f8"
+            "subnet-<>",
+            "subnet-<>",
+            "subnet-<>"
         ],
         "securityGroupIds": [
-            "sg-0d429a16c4f6decc0"
+            "sg-<>"
         ]
     }
 
